@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#F5EAD9" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("service-worker.js").catch(() => {});
+    });
+  }
+</script>
+<title>Reader</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
+  html, body { background:#F5EAD9; margin:0; padding:0; }
+  .display { font-family: 'Fraunces', serif; }
+  body { font-family: 'Inter', ui-sans-serif, system-ui; }
+  @keyframes popIn { 0%{opacity:0; transform:scale(0.95) translateY(6px)} 100%{opacity:1; transform:scale(1) translateY(0)} }
+  .pop { animation: popIn 0.25s ease-out; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// simple local storage wrapper standing in for window.storage
+const localDB = {
+  get: async (key) => { const v = localStorage.getItem(key); return v ? { value: v } : null; },
+  set: async (key, value) => { localStorage.setItem(key, value); return { key, value }; },
+};
+
+const FLOW_PARAGRAPHS = {
+  easy: [
+    { text: "The sun rises in the east every morning. Birds start to sing near dawn. People wake up and begin their day. Some go for a walk. Some make a cup of tea. The city slowly comes to life. Cars fill the roads. Shops open their doors. The morning feels fresh and calm before the noise begins.",
+      q: { question: "What do birds start doing near dawn?", options: ["Singing", "Sleeping", "Flying south", "Building nests"], answer: 0 } },
+    { text: "A good breakfast gives the body energy for the day ahead. Simple food often works best. Fruits, eggs, and warm tea are common choices. Many people eat while checking their phone. Others prefer a quiet moment before the day gets busy. Either way, breakfast sets the tone for what comes next.",
+      q: { question: "Which drink is mentioned as a common breakfast choice?", options: ["Coffee", "Juice", "Warm tea", "Milk"], answer: 2 } },
+    { text: "Going to the gym six days a week builds real strength over time. Small weights add up when lifted again and again. Rest days matter just as much as training days. The body needs time to repair and grow. Many people track their workouts in a simple notebook. Progress often shows up slowly, then all at once.",
+      q: { question: "How many days a week does the passage mention going to the gym?", options: ["Three", "Five", "Six", "Seven"], answer: 2 } },
+    { text: "Sunday football brings the whole group together. Some players are fast, others are strong, and a few are simply funny to watch. The match usually lasts about an hour. Afterward everyone grabs a cold drink and talks about the best moves. It becomes the highlight of the week for many friends.",
+      q: { question: "What do the players do after the football match?", options: ["Go home immediately", "Grab a cold drink and talk", "Start another match", "Watch television"], answer: 1 } },
+    { text: "Dark clouds gathered quickly over the city that afternoon. Within minutes, heavy rain began to fall on the streets below. People rushed to find shelter under shop roofs. Umbrellas opened all along the road. By evening the storm had passed, leaving the air clean and cool.",
+      q: { question: "What happened by evening?", options: ["The storm had passed", "It started snowing", "The sun never came out", "The city flooded"], answer: 0 } },
+    { text: "A new phone often feels exciting for the first few days. Bright screens and fast apps make everyday tasks simple. Charging it every night becomes a small daily habit. Over time, people fill it with photos, messages, and notes. It quietly becomes a tool nobody wants to be without.",
+      q: { question: "What becomes a small daily habit, per the passage?", options: ["Cleaning the screen", "Charging the phone every night", "Buying new apps", "Taking photos"], answer: 1 } },
+  ],
+  medium: [
+    { text: "Consistent practice builds skill far more reliably than occasional bursts of effort. A person who reads a little every single day will improve faster than someone who reads for hours only once a month. The brain adapts gradually, strengthening pathways through repetition rather than intensity alone. Small, steady habits compound into significant results over time, even when the daily progress feels invisible.",
+      q: { question: "What helps someone improve faster, per the passage?", options: ["Reading for hours once a month", "Reading a little every day", "Skipping weak days", "Reading only hard books"], answer: 1 } },
+    { text: "Focus is a skill like any other, and it responds to training. Constant notifications and quick scrolling habits slowly erode the ability to sit with a single task. Rebuilding that ability takes deliberate practice, starting with short, distraction free sessions and gradually extending them. Over weeks, what once felt uncomfortable begins to feel natural.",
+      q: { question: "What erodes the ability to focus, per the passage?", options: ["Sleeping well", "Notifications and scrolling", "Exercise", "Reading books"], answer: 1 } },
+    { text: "Learning to code rewards patience more than raw intelligence. Early mistakes are part of the process, not signs of failure. Every error message is really just useful feedback in disguise. Beginners who keep experimenting, even slowly, tend to improve much faster than those who wait until they feel fully ready.",
+      q: { question: "What do error messages represent, according to the passage?", options: ["Signs of failure", "Useless noise", "Useful feedback in disguise", "A reason to quit"], answer: 2 } },
+    { text: "Sleep is often the most ignored part of any fitness or study routine. The body repairs muscle and the brain organizes memory mostly during deep sleep. Cutting sleep short to work longer usually backfires within a few days. Protecting a consistent bedtime often does more for performance than any other single habit.",
+      q: { question: "What does the passage say often does the most for performance?", options: ["A consistent bedtime", "More caffeine", "Working longer hours", "Skipping breakfast"], answer: 0 } },
+    { text: "Saving a small amount every month feels unimportant at first glance. Yet compounded over several years, those small amounts grow into something meaningful. The habit matters more than the exact number saved. People who start early, even with tiny amounts, often end up ahead of those who wait for a bigger income.",
+      q: { question: "According to the passage, what matters more than the exact amount saved?", options: ["The habit of saving", "The bank chosen", "The interest rate", "The starting income"], answer: 0 } },
+    { text: "Traveling to an unfamiliar city forces quick problem solving. Reading signs in another language, finding transport, and adjusting to new food all sharpen the mind in ways a familiar routine rarely does. Many travelers say they learn more about themselves in a single unfamiliar week than in months at home.",
+      q: { question: "What does traveling to an unfamiliar city force, per the passage?", options: ["Quick problem solving", "Slower thinking", "More spending", "Less curiosity"], answer: 0 } },
+  ],
+  hard: [
+    { text: "The relationship between attention and comprehension is more intricate than most readers assume, since rapid visual exposure to text can outpace the brain's capacity for semantic integration even when word recognition itself remains effortless. Skilled readers compensate through predictive processing, anticipating likely continuations based on syntax and context, which reduces the cognitive load required to parse unfamiliar or complex sentence structures.",
+      q: { question: "What helps skilled readers handle complex sentences?", options: ["Reading slower always", "Ignoring punctuation", "Predictive processing from context", "Avoiding new vocabulary"], answer: 2 } },
+    { text: "Expertise in any domain tends to emerge not from raw exposure but from structured, deliberate engagement with material that sits just beyond current capability. Reading is no exception, and readers who consistently challenge themselves with denser vocabulary and longer sentence structures tend to develop both faster recognition and deeper retention of what they encounter.",
+      q: { question: "Where does expertise mainly come from, per the passage?", options: ["Natural talent", "Passive exposure", "Deliberate engagement beyond current ability", "Reading only easy material"], answer: 2 } },
+    { text: "Entrepreneurs often romanticize the initial spark of an idea while underestimating the unglamorous execution that follows. Sustained success typically depends less on the originality of a concept and more on the founder's tolerance for repeated, incremental failure. Those who treat early rejection as data rather than verdict tend to iterate their way toward something that eventually works.",
+      q: { question: "What does sustained entrepreneurial success typically depend on, per the passage?", options: ["Idea originality alone", "Tolerance for repeated incremental failure", "Avoiding all rejection", "Luck exclusively"], answer: 1 } },
+    { text: "As artificial intelligence systems grow more capable, the bottleneck in many workflows shifts from raw computation to the clarity of the instructions given to them. Precise, well structured prompts consistently outperform vague ones, suggesting that communication skill, not just technical skill, is becoming a core competency for anyone working closely with these tools.",
+      q: { question: "What does the passage suggest is becoming a core competency?", options: ["Raw computation speed", "Communication skill", "Hardware assembly", "Memorizing code syntax"], answer: 1 } },
+    { text: "Habit formation research suggests that identity change often precedes lasting behavior change, rather than the reverse. Someone who begins to see themselves as a person who reads, rather than someone trying to read more, tends to sustain the behavior longer, because the habit becomes self reinforcing instead of relying purely on willpower.",
+      q: { question: "According to the passage, what often precedes lasting behavior change?", options: ["Willpower alone", "Identity change", "Financial incentives", "Social pressure"], answer: 1 } },
+    { text: "Discipline is frequently framed as a battle against desire, yet in practice it functions more like architecture than combat. Structuring an environment so that the desired action requires the least friction, while the undesired action requires the most, tends to outperform sheer willpower over any meaningful stretch of time.",
+      q: { question: "What does discipline function more like, according to the passage?", options: ["A battle against desire", "Architecture that shapes friction", "Pure willpower", "Random chance"], answer: 1 } },
+  ],
+};
+
+const SENTENCE_POOLS = {
+  easy: ["The cat sat quietly by the window.","She poured a cup of hot tea.","The train arrived exactly on time.","He tied his shoes and left for work.","Rain tapped gently against the glass.","The market was busy on Saturday morning.","A soft breeze moved through the trees.","They watched the sunset from the roof.","He waters the plants every single morning.","The bakery smells amazing early in the day.","She packed her bag before going to bed.","The dog waited patiently by the front door.","Kids played cricket in the empty lot.","The library stays open until nine at night.","A gentle fog covered the hills at sunrise.","He fixed the broken chair in an hour.","The bus was late again on Monday.","They shared a pizza after the long walk.","The old clock still keeps perfect time.","She learned to ride a bicycle last summer."],
+  medium: ["Discipline beats motivation when things get hard.","The gym session today felt unusually productive.","Learning something new takes consistent daily practice.","Good habits compound over a long period of time.","Every expert was once a complete beginner.","Reading a little each day adds up quickly.","Focus improves the moment distractions are removed.","Progress is often invisible until you look back.","Small wins build the confidence needed for bigger ones.","He rewired the old motor just to see how it worked.","The startup pivoted twice before finding real traction.","Clear thinking usually starts with clear writing.","Her code finally compiled after three failed attempts.","A tidy workspace often leads to a tidier mind.","The interview went better than he had expected.","They tested the prototype until it stopped failing.","Momentum is easier to keep than to create.","He replaced the panel and the screen lit up again.","The mentor asked harder questions than expected.","Growth rarely happens inside the comfort zone."],
+  hard: ["Consistency in practice matters more than sudden bursts of motivation.","The recursive function calls itself until the base case is satisfied.","Building anything meaningful requires patience and stubborn persistence.","Skilled readers anticipate meaning before finishing each individual word.","A well structured routine quietly outperforms sporadic intense effort.","Comprehension depends on integration, not merely on rapid recognition.","Deliberate practice targets the exact edge of current ability.","Complex ideas often hide inside deceptively simple looking sentences.","The circuit failed only under specific voltage conditions.","Ambiguous requirements are often the true source of project delays.","Her thesis challenged a widely accepted assumption in the field.","Iterating quickly beats planning perfectly almost every time.","The algorithm's complexity grew faster than anticipated at scale.","Founders who listen closely often out execute louder competitors.","Precision in language often reveals precision in thought.","The debugging session revealed a subtle race condition.","Long term thinking rarely feels rewarding in the short term.","Their architecture decisions today will constrain choices for years.","Genuine curiosity tends to outlast forced motivation.","The experiment's results contradicted the initial hypothesis entirely."],
+};
+
+function pickN(arr, n) {
+  const copy = [...arr];
+  const out = [];
+  for (let k = 0; k < n && copy.length; k++) {
+    const idx = Math.floor(Math.random() * copy.length);
+    out.push(copy[idx]);
+    copy.splice(idx, 1);
+  }
+  return out;
+}
+function buildLadderRounds() {
+  return [...pickN(FLOW_PARAGRAPHS.easy, 2), ...pickN(FLOW_PARAGRAPHS.medium, 2), ...pickN(FLOW_PARAGRAPHS.hard, 2)];
+}
+const LADDER_STEP = 40;
+const LADDER_STARTS = [
+  { label: "Careful", wpm: 180 },
+  { label: "Balanced", wpm: 240 },
+  { label: "Bold", wpm: 300 },
+];
+
+const ACHIEVEMENTS = {
+  first_session: { label: "First Steps", desc: "Complete your first session" },
+  speed_300: { label: "300 Club", desc: "Hit 300 wpm actual pace" },
+  streak_3: { label: "On a Roll", desc: "3 day streak" },
+  streak_7: { label: "Habit Formed", desc: "7 day streak" },
+  challenger: { label: "Challenger", desc: "Play a Speed Ladder run" },
+  ladder_master: { label: "Ladder Master", desc: "Clear all 6 rounds" },
+};
+
+function orpIndex(word) {
+  const len = word.length;
+  if (len <= 1) return 0;
+  if (len <= 5) return 1;
+  if (len <= 9) return 2;
+  if (len <= 13) return 3;
+  return 4;
+}
+const XP_STEP = 150;
+const levelOf = (xp) => 1 + Math.floor(xp / XP_STEP);
+const todayStr = () => new Date().toISOString().slice(0, 10);
+const DEFAULT_PROFILE = { xp: 0, streak: 0, lastPlayed: null, achievements: [], bestLadderWpm: 0 };
+
+function Btn({ children, onClick, variant, active, className, disabled }) {
+  variant = variant || "primary"; className = className || "";
+  const base = "transition-all duration-150 active:scale-95 rounded-2xl font-semibold disabled:opacity-40 disabled:active:scale-100";
+  const variants = {
+    primary: "bg-[#C89B72] text-[#3E2C1E] hover:bg-[#BC8E63] active:bg-[#9C7148] active:text-[#F6ECDD]",
+    secondary: active
+      ? "bg-[#9C5B3F] border border-[#9C5B3F] text-[#F9F1E4] shadow-sm active:bg-[#7C4630]"
+      : "bg-[#F1E4D2] border border-[#DFC9AC] text-[#6B5540] active:bg-[#D9A79C] active:text-[#3E2C1E]",
+    ghost: "bg-transparent text-[#8A7259] active:text-[#3E2C1E] active:bg-[#EDE0CB]",
+    dark: "bg-[#4A3625] text-[#F6ECDD] hover:bg-[#3E2C1E] active:bg-[#2E2115]",
+  };
+  return (
+    <button onClick={onClick} disabled={disabled} className={base + " " + variants[variant] + " " + className}>
+      {children}
+    </button>
+  );
+}
+
+function Reader() {
+  const [screen, setScreen] = useState("home");
+  const [runType, setRunType] = useState("practice");
+  const [mode, setMode] = useState("flow");
+  const [difficulty, setDifficulty] = useState("medium");
+  const [wpm, setWpm] = useState(300);
+
+  const [profile, setProfile] = useState(DEFAULT_PROFILE);
+  const [loaded, setLoaded] = useState(false);
+
+  const [tokens, setTokens] = useState([]);
+  const [sentences, setSentences] = useState([]);
+  const [index, setIndex] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const [currentQ, setCurrentQ] = useState(null);
+  const [selectedOpt, setSelectedOpt] = useState(null);
+
+  const [roundIndex, setRoundIndex] = useState(0);
+  const [lives, setLives] = useState(3);
+  const [roundWpm, setRoundWpm] = useState(240);
+
+  const startRef = useRef(0);
+  const totalWordsRef = useRef(0);
+  const [sessionSummary, setSessionSummary] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await localDB.get("reader-profile");
+        if (res && res.value) setProfile(JSON.parse(res.value));
+      } catch (e) {}
+      setLoaded(true);
+    })();
+  }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    (async () => { try { await localDB.set("reader-profile", JSON.stringify(profile)); } catch (e) {} })();
+  }, [profile, loaded]);
+
+  const finishSession = (actualWpm, wordsRead, quizCorrect, isLadder, roundsCleared) => {
+    setProfile((prev) => {
+      const today = todayStr();
+      let streak = prev.streak;
+      if (prev.lastPlayed !== today) {
+        const y = new Date(); y.setDate(y.getDate() - 1);
+        streak = prev.lastPlayed === y.toISOString().slice(0, 10) ? prev.streak + 1 : 1;
+      }
+      let xpGain = Math.round(wordsRead / 8);
+      if (quizCorrect === true) xpGain += 20;
+      if (isLadder) xpGain += 25 * (roundsCleared || 0);
+
+      const newXp = prev.xp + xpGain;
+      const before = levelOf(prev.xp), after = levelOf(newXp);
+
+      const unlocked = [];
+      const has = (id) => prev.achievements.includes(id);
+      if (!has("first_session")) unlocked.push("first_session");
+      if (actualWpm >= 300 && !has("speed_300")) unlocked.push("speed_300");
+      if (streak >= 3 && !has("streak_3")) unlocked.push("streak_3");
+      if (streak >= 7 && !has("streak_7")) unlocked.push("streak_7");
+      if (isLadder && !has("challenger")) unlocked.push("challenger");
+      if (isLadder && roundsCleared >= 6 && !has("ladder_master")) unlocked.push("ladder_master");
+
+      const bestLadderWpm = isLadder ? Math.max(prev.bestLadderWpm, actualWpm) : prev.bestLadderWpm;
+      setSessionSummary({ xpGain, leveledUp: after > before, newLevel: after, streak, unlocked, bestLadderWpm });
+      return { ...prev, xp: newXp, streak, lastPlayed: today, achievements: [...prev.achievements, ...unlocked], bestLadderWpm };
+    });
+  };
+
+  const startPractice = () => {
+    setRunType("practice");
+    if (mode === "flow") {
+      const pool = FLOW_PARAGRAPHS[difficulty];
+      const item = pool[Math.floor(Math.random() * pool.length)];
+      setTokens(item.text.split(/\s+/));
+      setCurrentQ(item.q);
+      totalWordsRef.current = item.text.split(/\s+/).length;
+    } else {
+      setSentences(SENTENCE_POOLS[difficulty]);
+      setCurrentQ(null);
+      totalWordsRef.current = SENTENCE_POOLS[difficulty].join(" ").split(/\s+/).length;
+    }
+    setIndex(0); setPlaying(true); setSelectedOpt(null);
+    startRef.current = Date.now();
+    setScreen("reading");
+  };
+
+  const ladderRoundsRef = useRef([]);
+
+  const startLadder = (startWpm) => {
+    setRunType("ladder"); setMode("flow");
+    ladderRoundsRef.current = buildLadderRounds();
+    setRoundIndex(0); setLives(3); setRoundWpm(startWpm);
+    const item = ladderRoundsRef.current[0];
+    setTokens(item.text.split(/\s+/));
+    setCurrentQ(item.q);
+    totalWordsRef.current = item.text.split(/\s+/).length;
+    setIndex(0); setPlaying(true); setSelectedOpt(null);
+    startRef.current = Date.now();
+    setWpm(startWpm);
+    setScreen("reading");
+  };
+
+  const nextLadderRound = (nextLives) => {
+    const nr = roundIndex + 1;
+    if (nr >= ladderRoundsRef.current.length || nextLives <= 0) {
+      finishSession(roundWpm, totalWordsRef.current, null, true, nr >= ladderRoundsRef.current.length ? 6 : nr);
+      setScreen("done");
+      return;
+    }
+    const nwpm = roundWpm + LADDER_STEP;
+    const item = ladderRoundsRef.current[nr];
+    setRoundIndex(nr); setRoundWpm(nwpm); setWpm(nwpm);
+    setTokens(item.text.split(/\s+/));
+    setCurrentQ(item.q);
+    totalWordsRef.current = item.text.split(/\s+/).length;
+    setIndex(0); setSelectedOpt(null); setPlaying(true);
+    setScreen("reading");
+  };
+
+  useEffect(() => {
+    if (screen !== "reading" || !playing) return;
+    const list = mode === "flow" ? tokens : sentences;
+    if (index >= list.length) {
+      if (mode === "flow" && currentQ) setScreen("quiz");
+      else finalizeNoQuiz();
+      return;
+    }
+    const token = list[index];
+    let delay;
+    if (mode === "flow") {
+      delay = 60000 / wpm;
+      if (/[.,!?;:]$/.test(token)) delay *= 1.7;
+      else if (token.length > 7) delay *= 1.15;
+    } else {
+      const wc = token.split(/\s+/).length;
+      delay = Math.max((wc / wpm) * 60000, 700);
+    }
+    const t = setTimeout(() => setIndex((i) => i + 1), delay);
+    return () => clearTimeout(t);
+  }, [screen, playing, index, wpm, mode, tokens, sentences]);
+
+  const finalizeNoQuiz = () => {
+    const mins = Math.max((Date.now() - startRef.current) / 60000, 1 / 60000);
+    const actual = Math.round(totalWordsRef.current / mins) || 0;
+    finishSession(actual, totalWordsRef.current, null, false, 0);
+    setScreen("done");
+  };
+
+  useEffect(() => {
+    const onKey = (e) => { if (screen === "reading" && e.code === "Space") { e.preventDefault(); setPlaying((p) => !p); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [screen]);
+
+  const answerQuiz = (optIndex) => {
+    if (selectedOpt !== null) return;
+    setSelectedOpt(optIndex);
+    const correct = optIndex === currentQ.answer;
+    const mins = Math.max((Date.now() - startRef.current) / 60000, 1 / 60000);
+    const actual = Math.round(totalWordsRef.current / mins) || 0;
+    setTimeout(() => {
+      if (runType === "ladder") {
+        const nextLives = correct ? lives : lives - 1;
+        setLives(nextLives);
+        nextLadderRound(nextLives);
+      } else {
+        finishSession(actual, totalWordsRef.current, correct, false, 0);
+        setScreen("done");
+      }
+    }, 1100);
+  };
+
+  const list = mode === "flow" ? tokens : sentences;
+  const progress = list.length ? Math.min((index / list.length) * 100, 100) : 0;
+  const currentWord = mode === "flow" ? (tokens[index] || "") : "";
+  const oi = currentWord ? Math.min(orpIndex(currentWord), currentWord.length - 1) : 0;
+  const left = currentWord.slice(0, oi), mid = currentWord[oi] || "", right = currentWord.slice(oi + 1);
+
+  const level = levelOf(profile.xp);
+  const xpIntoLevel = profile.xp % XP_STEP;
+
+  return (
+    <div className="min-h-screen w-full bg-[#F5EAD9] text-[#3E2C1E] flex flex-col items-center relative overflow-hidden select-none">
+      <div className="w-full max-w-md px-5 pt-6 pb-3 flex items-center justify-between">
+        <div className="display text-2xl font-semibold">Reader</div>
+        {loaded && (
+          <div className="flex items-center gap-3 bg-[#F1E4D2] border border-[#DFC9AC] rounded-2xl px-4 py-2.5">
+            <div className="w-9 h-9 rounded-full bg-[#C89B72] flex items-center justify-center font-bold text-[#3E2C1E] display">{level}</div>
+            <div className="flex-1 min-w-[80px]">
+              <div className="h-1.5 bg-[#E4D3B8] rounded-full overflow-hidden">
+                <div className="h-full bg-[#B98A5E]" style={{ width: (xpIntoLevel / XP_STEP) * 100 + "%" }} />
+              </div>
+            </div>
+            <div className="text-sm text-[#8A7259] whitespace-nowrap">🔥 {profile.streak}</div>
+          </div>
+        )}
+      </div>
+
+      {screen === "home" && (
+        <div className="w-full max-w-md px-5 pb-16 pop">
+          <p className="text-[#8A7259] text-sm mb-6">Train your reading pace, or push it in a run that gets faster every round.</p>
+          <div className="bg-[#F1E4D2] border border-[#DFC9AC] rounded-3xl p-5 mb-4">
+            <div className="display text-xl font-semibold mb-1">Practice</div>
+            <p className="text-sm text-[#8A7259] mb-4">Pick your own pace and difficulty. Build consistency at your own speed.</p>
+            <Btn variant="primary" className="w-full py-3" onClick={() => setScreen("practice-setup")}>Start practice</Btn>
+          </div>
+          <div className="bg-[#4A3625] text-[#F6ECDD] rounded-3xl p-5 mb-4">
+            <div className="display text-xl font-semibold mb-1">⚡ Speed Ladder</div>
+            <p className="text-sm text-[#D9C6AE] mb-1">Every round reads faster than the last. Answer right to climb, miss twice and it's over.</p>
+            {profile.bestLadderWpm > 0 ? <p className="text-xs text-[#C89B72] mb-4">Best pace reached: {profile.bestLadderWpm} wpm</p> : <div className="mb-4" />}
+            <Btn variant="primary" className="w-full py-3" onClick={() => setScreen("ladder-setup")}>Climb the ladder</Btn>
+          </div>
+          <button onClick={() => setScreen("achievements")} className="w-full text-center text-sm text-[#8A7259] py-3 active:text-[#3E2C1E]">
+            🏆 {profile.achievements.length}/{Object.keys(ACHIEVEMENTS).length} achievements — view all
+          </button>
+        </div>
+      )}
+
+      {screen === "achievements" && (
+        <div className="w-full max-w-md px-5 pb-16 pop">
+          <div className="display text-xl font-semibold mb-4">Achievements</div>
+          <div className="space-y-2 mb-6">
+            {Object.entries(ACHIEVEMENTS).map(([id, a]) => {
+              const done = profile.achievements.includes(id);
+              return (
+                <div key={id} className={"rounded-2xl border px-4 py-3 flex items-center gap-3 " + (done ? "bg-[#F1E4D2] border-[#DFC9AC]" : "bg-transparent border-[#E4D3B8] opacity-50")}>
+                  <div className="text-xl">{done ? "🏆" : "🔒"}</div>
+                  <div>
+                    <div className="font-semibold text-sm">{a.label}</div>
+                    <div className="text-xs text-[#8A7259]">{a.desc}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <Btn variant="ghost" className="w-full py-3" onClick={() => setScreen("home")}>← Back</Btn>
+        </div>
+      )}
+
+      {screen === "practice-setup" && (
+        <div className="w-full max-w-md px-5 pb-16 pop">
+          <div className="display text-2xl font-semibold mb-6">Set your pace</div>
+          <div className="mb-6">
+            <div className="text-xs uppercase tracking-widest text-[#8A7259] mb-2">Mode</div>
+            <div className="flex gap-2">
+              <Btn variant="secondary" active={mode === "flow"} className="flex-1 py-3" onClick={() => setMode("flow")}>Flow (word)</Btn>
+              <Btn variant="secondary" active={mode === "sentences"} className="flex-1 py-3" onClick={() => setMode("sentences")}>Sentences</Btn>
+            </div>
+          </div>
+          <div className="mb-6">
+            <div className="text-xs uppercase tracking-widest text-[#8A7259] mb-2">Difficulty</div>
+            <div className="flex gap-2">
+              {["easy", "medium", "hard"].map((d) => (
+                <Btn key={d} variant="secondary" active={difficulty === d} className="flex-1 py-3 capitalize" onClick={() => setDifficulty(d)}>{d}</Btn>
+              ))}
+            </div>
+          </div>
+          <div className="mb-9">
+            <div className="text-xs uppercase tracking-widest text-[#8A7259] mb-2">Speed — {wpm} wpm</div>
+            <input type="range" min={100} max={800} step={25} value={wpm} onChange={(e) => setWpm(Number(e.target.value))} className="w-full accent-[#C89B72] mb-2" />
+            <div className="flex gap-1.5 flex-wrap">
+              {[200, 300, 400, 500, 600].map((p) => (
+                <Btn key={p} variant="secondary" active={wpm === p} className="px-3 py-1.5 text-xs" onClick={() => setWpm(p)}>{p}</Btn>
+              ))}
+            </div>
+          </div>
+          <Btn variant="primary" className="w-full py-3.5 mb-2" onClick={startPractice}>Start reading</Btn>
+          <Btn variant="ghost" className="w-full py-3" onClick={() => setScreen("home")}>← Back</Btn>
+        </div>
+      )}
+
+      {screen === "ladder-setup" && (
+        <div className="w-full max-w-md px-5 pb-16 pop">
+          <div className="display text-2xl font-semibold mb-2">Speed Ladder</div>
+          <p className="text-sm text-[#8A7259] mb-6">6 rounds, each +{LADDER_STEP} wpm faster than the last. Miss two questions and the run ends. Pick your starting pace.</p>
+          <div className="space-y-3">
+            {LADDER_STARTS.map((s) => (
+              <button key={s.label} onClick={() => startLadder(s.wpm)} className="w-full text-left bg-[#F1E4D2] border border-[#DFC9AC] rounded-2xl px-5 py-4 flex items-center justify-between transition-all active:scale-[0.98] active:bg-[#D9A79C]">
+                <div>
+                  <div className="font-semibold display text-lg">{s.label}</div>
+                  <div className="text-xs text-[#8A7259]">Starts at {s.wpm} wpm</div>
+                </div>
+                <div className="text-xl">→</div>
+              </button>
+            ))}
+          </div>
+          <Btn variant="ghost" className="w-full py-3 mt-6" onClick={() => setScreen("home")}>← Back</Btn>
+        </div>
+      )}
+
+      {screen === "reading" && (
+        <div className="w-full max-w-md px-5 flex-1 flex flex-col">
+          {runType === "ladder" && (
+            <div className="flex items-center justify-between mb-3 text-sm">
+              <div className="font-semibold">Round {roundIndex + 1}/6</div>
+              <div>{"❤️".repeat(lives)}{"🤍".repeat(3 - lives)}</div>
+              <div className="text-[#8A7259]">{roundWpm} wpm</div>
+            </div>
+          )}
+          <div className="h-1.5 bg-[#E4D3B8] rounded-full overflow-hidden mb-8">
+            <div className="h-full bg-[#C89B72] transition-all duration-150" style={{ width: progress + "%" }} />
+          </div>
+          <div className="flex-1 flex items-center justify-center min-h-[260px]">
+            {mode === "flow" ? (
+              <div className="w-full flex flex-col items-center">
+                <div className="w-0.5 h-4 bg-[#B98A5E]/50 mb-2" />
+                <div className="flex items-center justify-center w-full">
+                  <div className="flex-1 text-right display text-4xl font-semibold text-[#8A7259]">{left}</div>
+                  <div className="display text-4xl font-bold text-[#9C5B3F] px-0.5">{mid}</div>
+                  <div className="flex-1 text-left display text-4xl font-semibold text-[#8A7259]">{right}</div>
+                </div>
+                <div className="w-0.5 h-4 bg-[#B98A5E]/50 mt-2" />
+              </div>
+            ) : (
+              <div className="display text-2xl text-center leading-relaxed px-2">{sentences[index]}</div>
+            )}
+          </div>
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <Btn variant="ghost" className="px-4 py-3" onClick={() => setScreen("home")}>←</Btn>
+            <Btn variant="dark" className="px-8 py-3" onClick={() => setPlaying((p) => !p)}>{playing ? "⏸ Pause" : "▶ Resume"}</Btn>
+          </div>
+          <div className="text-center text-xs text-[#8A7259] mb-4">space to pause</div>
+        </div>
+      )}
+
+      {screen === "quiz" && currentQ && (
+        <div className="w-full max-w-md px-5 pb-16 pop">
+          <div className="text-xs uppercase tracking-widest text-[#8A7259] mb-2">Quick check</div>
+          <div className="display text-xl font-semibold mb-6">{currentQ.question}</div>
+          <div className="space-y-2.5">
+            {currentQ.options.map((opt, i) => {
+              const isCorrect = i === currentQ.answer;
+              const isSelected = i === selectedOpt;
+              let style = "bg-[#F1E4D2] border-[#DFC9AC] text-[#6B5540]";
+              if (selectedOpt !== null) {
+                if (isCorrect) style = "bg-[#C7D9B7] border-[#9FBF87] text-[#3E2C1E]";
+                else if (isSelected) style = "bg-[#E3B2A6] border-[#C9887A] text-[#3E2C1E]";
+                else style = "bg-transparent border-[#E4D3B8] text-[#B3A18B]";
+              }
+              return (
+                <button key={i} disabled={selectedOpt !== null} onClick={() => answerQuiz(i)} className={"w-full text-left rounded-2xl border px-4 py-3.5 font-medium transition-all duration-150 active:scale-[0.98] " + style}>
+                  {opt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {screen === "done" && sessionSummary && (
+        <div className="w-full max-w-md px-5 pb-16 pop text-center">
+          <div className="text-4xl mb-3">{sessionSummary.leveledUp ? "🎉" : runType === "ladder" ? "⚡" : "✅"}</div>
+          <div className="display text-2xl font-semibold mb-1">
+            {sessionSummary.leveledUp ? "Level " + sessionSummary.newLevel + "!" : runType === "ladder" ? "Ladder run over" : "Session complete"}
+          </div>
+          <p className="text-sm text-[#8A7259] mb-6">
+            +{sessionSummary.xpGain} XP {sessionSummary.streak > 1 ? "· 🔥 " + sessionSummary.streak + " day streak" : ""}
+          </p>
+          {runType === "ladder" && (
+            <div className="bg-[#F1E4D2] border border-[#DFC9AC] rounded-2xl py-4 mb-4">
+              <div className="display text-2xl font-bold text-[#9C5B3F]">{roundWpm} wpm</div>
+              <div className="text-xs uppercase tracking-widest text-[#8A7259] mt-1">Peak pace reached</div>
+            </div>
+          )}
+          {sessionSummary.unlocked && sessionSummary.unlocked.length > 0 && (
+            <div className="mb-6 space-y-2">
+              {sessionSummary.unlocked.map((id) => (
+                <div key={id} className="bg-[#EFE3C8] border border-[#DFC9AC] rounded-xl px-4 py-2.5 text-sm font-semibold flex items-center gap-2 justify-center">
+                  🏆 {ACHIEVEMENTS[id].label}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-3">
+            <Btn variant="primary" className="flex-1 py-3" onClick={() => (runType === "ladder" ? setScreen("ladder-setup") : setScreen("practice-setup"))}>Go again</Btn>
+            <Btn variant="secondary" className="flex-1 py-3" onClick={() => setScreen("home")}>Home</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<Reader />);
+</script>
+</body>
+</html>
